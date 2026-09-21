@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garden Plot: a DSA garden simulator</title>
+<style>
+:root{
+  --sage-deep:#22382b; --sage:#3e5b48; --moss:#8fb08a; --straw:#ecdca8;
+  --soil:#5e402b; --soil-lit:#7a5639; --soil-wet:#3b281a;
+  --ink:#f3f1e4; --glass:rgba(240,246,230,.11); --edge:rgba(240,246,230,.24);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; color:var(--ink);
+  font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:radial-gradient(1100px 650px at 12% -10%,#5c8065,transparent 60%),
+             linear-gradient(160deg,var(--sage),var(--sage-deep));
+  background-attachment:fixed;
+}
+h1,h2{font-family:"Iowan Old Style",Palatino,"Palatino Linotype",Georgia,serif;font-weight:600;margin:0}
+h1{font-size:clamp(1.7rem,3.6vw,2.6rem);letter-spacing:-.01em}
+h2{font-size:1.15rem}
+header{padding:20px clamp(14px,3vw,32px) 4px}
+header p{margin:4px 0 0;opacity:.8;max-width:60ch}
+.layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);gap:18px;padding:14px clamp(14px,3vw,32px) 32px;align-items:start}
+.glass{
+  background:var(--glass); border:1px solid var(--edge); border-radius:18px;
+  backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 10px 30px rgba(10,25,15,.28); padding:16px;
+}
+.right{display:grid;gap:14px}
+.head-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px}
+.badge{font-size:.85rem;background:rgba(0,0,0,.25);padding:2px 10px;border-radius:99px}
+
+/* Buttons */
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{
+  background:rgba(255,255,255,.1); border:1px solid var(--edge); border-radius:12px;
+  padding:9px 14px; min-height:44px; transition:background .15s,transform .1s;
+}
+.btn:hover:not(:disabled){background:rgba(255,255,255,.2)}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn[aria-pressed="true"]{background:var(--straw);color:#2b2a18;border-color:var(--straw);font-weight:600}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--straw);outline-offset:2px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+.toolbar .sep{width:1px;align-self:stretch;background:var(--edge);margin:0 4px}
+.pal{font-size:1.4rem;padding:4px 12px;line-height:1}
+
+/* Grid */
+#grid{
+  container-type:inline-size; display:grid; grid-template-columns:repeat(16,1fr);
+  gap:2px; padding:6px; background:#2a1c12; border-radius:12px; touch-action:manipulation; user-select:none;
+}
+.cell{
+  aspect-ratio:1; padding:0; border:0; border-radius:4px; position:relative;
+  background:linear-gradient(145deg,var(--soil-lit),var(--soil));
+  font-size:4.2cqw; line-height:1; display:grid; place-items:center;
+  transition:background .2s;
+}
+.cell:hover{filter:brightness(1.25)}
+.cell.wet{background:linear-gradient(145deg,#4d3421,var(--soil-wet))}
+.cell.wet::after{content:"💧";position:absolute;right:-1px;bottom:-1px;font-size:2.2cqw}
+.cell.queued{outline:2px dashed var(--straw);outline-offset:-2px}
+.cell.fresh{animation:pop .25s ease-out}
+@keyframes pop{from{transform:scale(.6)}to{transform:scale(1)}}
+#status{min-height:1.5em;margin:12px 2px 0;opacity:.9}
+
+/* Tree */
+.tree,.tree ul{list-style:none;margin:0;padding:0}
+.tree ul{margin-left:14px;padding-left:10px;border-left:1px solid var(--edge)}
+.tnode{
+  background:none;border:0;padding:6px 8px;border-radius:8px;min-height:36px;
+  display:inline-flex;gap:6px;align-items:center;text-align:left;
+}
+.tnode:hover{background:rgba(255,255,255,.12)}
+.tnode.on{background:var(--straw);color:#2b2a18;font-weight:600}
+.tnode em{font-style:normal;font-size:.8rem;background:rgba(0,0,0,.25);border-radius:99px;padding:0 8px;color:var(--ink)}
+.caret{width:1em;opacity:.8}
+
+/* Queue & stack lists */
+.list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px;max-height:190px;overflow:auto}
+.list li{background:rgba(0,0,0,.2);border-radius:10px;padding:7px 12px;font-size:.93rem;display:flex;justify-content:space-between;gap:8px}
+.list li.front{background:rgba(236,220,168,.22);border:1px solid var(--straw)}
+.list li small{opacity:.8;white-space:nowrap}
+.empty{opacity:.7;font-size:.93rem;margin:10px 0 0}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.cell.st1{font-size:4.9cqw}
+.cell.st2{font-size:5.5cqw;box-shadow:inset 0 0 0 2px var(--moss)}
+.tnode.visit{background:var(--moss);color:#14261b}
+.cap{margin:-4px 0 10px;font-size:.85rem;opacity:.75}
+.list li.empty{background:none;padding:2px 0;opacity:.7}
+</style>
+</head>
+<body>
+<header>
+  <h1>Garden Plot</h1>
+  <p>Plant a 16 × 16 garden, water it through a queue, and undo or redo any move. Every panel is driven by a real data structure.</p>
+</header>
+
+<main class="layout">
+  <section class="glass" aria-label="Garden">
+    <div class="toolbar">
+      <div class="row" id="palette" role="group" aria-label="Choose a plant"></div>
+      <span class="sep"></span>
+      <button class="btn" id="modePlant" aria-pressed="true">Plant</button>
+      <button class="btn" id="modeWater" aria-pressed="false">Water Queue</button>
+      <span class="sep"></span>
+      <button class="btn" id="undoBtn">Undo</button>
+      <button class="btn" id="redoBtn">Redo</button>
+    </div>
+    <div class="toolbar">
+      <span class="badge" id="dayBadge"></span>
+      <button class="btn" id="dayBtn">Next day</button>
+      <button class="btn" id="resetBtn">Reset garden</button>
+    </div>
+    <div id="grid" role="grid" aria-label="Garden plot, 16 by 16"></div>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <aside class="right">
+    <div class="glass">
+      <div class="head-row"><h2>Plant taxonomy</h2><span class="badge" id="treeTotal"></span></div>
+      <p class="cap">A tree: each category holds its children. Tap a plant to choose it.</p>
+      <div class="row">
+        <button class="btn" id="dfsBtn">Walk depth-first</button>
+        <button class="btn" id="bfsBtn">Walk breadth-first</button>
+      </div>
+      <ul class="tree" id="tree"></ul>
+    </div>
+    <div class="glass">
+      <div class="head-row"><h2>Task queue</h2><span class="badge" id="queueCount"></span></div>
+      <p class="cap">FIFO: tasks join at the back and leave from the front.</p>
+      <div class="row">
+        <button class="btn" id="nextBtn">Process next</button>
+        <button class="btn" id="allBtn">Process all</button>
+      </div>
+      <ol class="list" id="queue"></ol>
+    </div>
+    <div class="glass">
+      <div class="head-row"><h2>Action stack</h2><span class="badge" id="stackCount"></span></div>
+      <p class="cap">LIFO: Undo always takes the newest action off the top.</p>
+      <ul class="list" id="stack"></ul>
+    </div>
+  </aside>
+</main>
+
+<script>
+/* ==========================================================================
+   Species catalogue (plain data used by the grid, palette and tree)
+   ========================================================================== */
+const SPECIES = {
+  rose:      { emoji: '🌹', name: 'Rose' },
+  sunflower: { emoji: '🌻', name: 'Sunflower' },
+  tomato:    { emoji: '🍅', name: 'Tomato' },
+  seedling:  { emoji: '🌱', name: 'Seedling' },
+};
+
+/* ==========================================================================
+   DSA #1 (+ OOP): GardenGrid — a 2D matrix (array of arrays), 16 x 16.
+   cells[row][col] is either null (empty soil) or { key, watered }.
+   Python equivalent:  class GardenGrid: def __init__(self, rows=16, cols=16): ...
+   ========================================================================== */
+class GardenGrid {
+  constructor(rows = 16, cols = 16) {
+    this.rows = rows;
+    this.cols = cols;
+    this.cells = Array.from({ length: rows }, () => Array(cols).fill(null));
+  }
+  inBounds(r, c) { return r >= 0 && r < this.rows && c >= 0 && c < this.cols; }
+  get(r, c)      { return this.inBounds(r, c) ? this.cells[r][c] : null; }   // O(1) index access
+  plant(r, c, key) {
+    if (!this.inBounds(r, c) || this.cells[r][c]) return false;
+    this.cells[r][c] = { key, watered: false, stage: 0 };
+    return true;
+  }
+  remove(r, c) { if (this.inBounds(r, c)) this.cells[r][c] = null; }
+  water(r, c) {
+    const p = this.get(r, c);
+    if (!p) return false;
+    p.watered = true;
+    return true;
+  }
+  grow() {                        // end of day: watered plants advance one stage, then the soil dries
+    const wet = [], grown = [];
+    this.cells.forEach((row, r) => row.forEach((p, c) => {
+      if (!p || !p.watered) return;
+      wet.push([r, c]);
+      if (p.stage < 2) { p.stage++; grown.push([r, c]); }
+      p.watered = false;
+    }));
+    return { wet, grown };
+  }
+  ungrow({ wet, grown }) {        // exact inverse of grow(), so Undo can reverse a day
+    grown.forEach(([r, c]) => this.cells[r][c].stage--);
+    wet.forEach(([r, c]) => { this.cells[r][c].watered = true; });
+  }
+  tally() {                       // full matrix scan: species key -> number planted
+    const t = {};
+    for (const row of this.cells) for (const p of row) if (p) t[p.key] = (t[p.key] || 0) + 1;
+    return t;
+  }
+}
+
+/* ==========================================================================
+   DSA #2 (+ OOP): ActionStack — LIFO stack. The last action pushed is the
+   first one popped, which is exactly what Undo needs.
+   Python equivalent: a list using append() / pop().
+   ========================================================================== */
+class ActionStack {
+  #items = [];
+  clear() { this.#items = []; }
+  push(action) { this.#items.push(action); }                       // add on top
+  pop()        { return this.#items.length ? this.#items.pop() : null; } // remove from top
+  peek()       { return this.#items[this.#items.length - 1] ?? null; }
+  isEmpty()    { return this.#items.length === 0; }
+  get size()   { return this.#items.length; }
+  toArray()    { return [...this.#items]; }                         // bottom -> top
+}
+
+/* ==========================================================================
+   DSA #3 (+ OOP): TaskQueue — FIFO queue. Tasks leave in the exact order
+   they arrived. A head pointer makes dequeue O(1) instead of shifting the array.
+   Python equivalent: collections.deque with append() / popleft().
+   ========================================================================== */
+class TaskQueue {
+  #items = [];
+  #head = 0;
+  enqueue(task) { this.#items.push(task); }                        // join at the back
+  dequeue() {                                                       // leave from the front
+    if (this.isEmpty()) return null;
+    const task = this.#items[this.#head++];
+    if (this.#head > 32) { this.#items = this.#items.slice(this.#head); this.#head = 0; } // compact
+    return task;
+  }
+  peek()     { return this.isEmpty() ? null : this.#items[this.#head]; }
+  isEmpty()  { return this.size === 0; }
+  get size() { return this.#items.length - this.#head; }
+  toArray()  { return this.#items.slice(this.#head); }             // front -> back
+}
+
+/* ==========================================================================
+   DSA #4 (+ OOP): TreeNode — hierarchical (n-ary) tree of plant categories.
+   Each node holds a list of children; leaves are species.
+   Recursion is used for rendering (pre-order) and for subtotals (post-order).
+   ========================================================================== */
+class TreeNode {
+  constructor(label, { emoji = null, key = null } = {}) {
+    this.label = label;
+    this.emoji = emoji;
+    this.key = key;            // set on leaf nodes only
+    this.children = [];
+    this.expanded = true;
+  }
+  addChild(node) { this.children.push(node); return node; }
+  dfs() {                      // depth-first walk, driven by an explicit LIFO stack
+    const out = [], stack = [this];
+    while (stack.length) {
+      const n = stack.pop(); out.push(n);
+      for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
+    }
+    return out;
+  }
+  bfs() {                      // breadth-first walk, driven by a FIFO queue (reuses TaskQueue)
+    const out = [], q = new TaskQueue();
+    q.enqueue(this);
+    while (!q.isEmpty()) { const n = q.dequeue(); out.push(n); n.children.forEach(ch => q.enqueue(ch)); }
+    return out;
+  }
+  isLeaf()       { return this.children.length === 0; }
+  subtotal(counts) {           // post-order: children first, then this node
+    if (this.isLeaf()) return counts[this.key] || 0;
+    return this.children.reduce((sum, ch) => sum + ch.subtotal(counts), 0);
+  }
+}
+
+// Build: Botanical Garden -> (Flora | Crops) -> (Flowers | Vegetables) -> species
+const root = new TreeNode('Botanical Garden');
+const flora = root.addChild(new TreeNode('Flora'));
+const crops = root.addChild(new TreeNode('Crops'));
+const flowers = flora.addChild(new TreeNode('Flowers'));
+const veg = crops.addChild(new TreeNode('Vegetables'));
+for (const k of ['rose', 'sunflower'])  flowers.addChild(new TreeNode(SPECIES[k].name, { emoji: SPECIES[k].emoji, key: k }));
+for (const k of ['tomato', 'seedling']) veg.addChild(new TreeNode(SPECIES[k].name, { emoji: SPECIES[k].emoji, key: k }));
+
+/* ==========================================================================
+   App state + rendering (the UI only talks to the classes above)
+   ========================================================================== */
+const garden = new GardenGrid(16, 16);   // DSA #1 instance
+const actions = new ActionStack();       // DSA #2 instance: undo history
+const redoStack = new ActionStack();     // DSA #2 again: a second stack makes Redo possible
+const queue = new TaskQueue();           // DSA #3 instance
+let mode = 'plant', current = 'rose', day = 1, lit = null, touring = false, fresh = null;
+const KEY = 'garden-plot-v1';
+
+const $ = id => document.getElementById(id);
+const gridEl = $('grid');
+const say = msg => { $('status').textContent = msg; };
+const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const nameOf = key => `${SPECIES[key].emoji} ${SPECIES[key].name}`;
+const cellAt = (r, c) => gridEl.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+const describe = a =>
+  a.type === 'plant' ? `Planted ${nameOf(a.key)} at (${a.r},${a.c})`
+  : a.type === 'water' ? `Watered (${a.r},${a.c})`
+  : `Ended day ${a.day}, ${pl(a.grown.length, 'plant')} grew`;
+
+// Any new action goes on the undo stack and wipes the redo stack
+const record = a => { actions.push(a); redoStack.clear(); };
+const apply = a => {                       // used by Redo
+  if (a.type === 'plant') garden.plant(a.r, a.c, a.key);
+  else if (a.type === 'water') garden.water(a.r, a.c);
+  else { garden.grow(); day = a.day + 1; }
+};
+const revert = a => {                      // used by Undo
+  if (a.type === 'plant') garden.remove(a.r, a.c);
+  else if (a.type === 'water') { const p = garden.get(a.r, a.c); if (p) p.watered = false; }
+  else { garden.ungrow(a); day = a.day; }
+};
+
+/* ---- Save and restore (localStorage), so a refresh keeps the garden ---- */
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ cells: garden.cells, day,
+      actions: actions.toArray(), redo: redoStack.toArray(), queue: queue.toArray() }));
+  } catch (e) { /* storage blocked: the app still works, it just won't remember */ }
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (!s || !Array.isArray(s.cells) || s.cells.length !== garden.rows) return;
+    garden.cells = s.cells; day = s.day || 1;
+    s.actions.forEach(a => actions.push(a));
+    s.redo.forEach(a => redoStack.push(a));
+    s.queue.forEach(t => queue.enqueue(t));
+  } catch (e) { /* ignore corrupt data and start fresh */ }
+}
+
+/* ---- Rendering ---- */
+function renderPalette() {
+  $('palette').innerHTML = Object.entries(SPECIES).map(([k, s]) =>
+    `<button class="btn pal" data-key="${k}" aria-pressed="${k === current}" aria-label="${s.name}" title="${s.name}">${s.emoji}</button>`
+  ).join('');
+}
+
+function renderGrid() {
+  const queued = new Set(queue.toArray().map(t => t.r + ',' + t.c));
+  let html = '';
+  for (let r = 0; r < garden.rows; r++) {
+    for (let c = 0; c < garden.cols; c++) {
+      const p = garden.get(r, c), k = r + ',' + c;
+      const cls = 'cell' + (p ? ' st' + p.stage : '') + (p && p.watered ? ' wet' : '') + (queued.has(k) ? ' queued' : '') + (fresh === k ? ' fresh' : '');
+      const label = p ? `${SPECIES[p.key].name} at row ${r}, column ${c}, growth stage ${p.stage + 1} of 3` : `Empty plot at row ${r}, column ${c}`;
+      html += `<button class="${cls}" data-r="${r}" data-c="${c}" aria-label="${label}">${p ? SPECIES[p.key].emoji : ''}</button>`;
+    }
+  }
+  gridEl.innerHTML = html;
+}
+
+// Recursive tree render (pre-order traversal of TreeNode)
+function renderTreeNode(node, counts) {
+  const li = document.createElement('li');
+  const btn = document.createElement('button');
+  btn.className = 'tnode';
+  btn.classList.toggle('visit', node === lit);
+  if (node.isLeaf()) {
+    btn.innerHTML = `<span>${node.emoji}</span> ${node.label} <em>${counts[node.key] || 0}</em>`;
+    btn.classList.toggle('on', node.key === current);
+    btn.onclick = () => { current = node.key; mode = 'plant'; say(`Selected ${node.label}. Tap an empty plot to plant it.`); render(); };
+    li.append(btn);
+    return li;
+  }
+  btn.innerHTML = `<span class="caret">${node.expanded ? '▾' : '▸'}</span> ${node.label} <em>${node.subtotal(counts)}</em>`;
+  btn.setAttribute('aria-expanded', node.expanded);
+  btn.onclick = () => { node.expanded = !node.expanded; render(); };
+  li.append(btn);
+  if (node.expanded) {
+    const ul = document.createElement('ul');
+    node.children.forEach(ch => ul.append(renderTreeNode(ch, counts)));   // recursion
+    li.append(ul);
+  }
+  return li;
+}
+
+function render() {
+  const counts = garden.tally();
+  renderPalette();
+  renderGrid();
+  fresh = null;
+  $('tree').replaceChildren(renderTreeNode(root, counts));
+  $('treeTotal').textContent = `${root.subtotal(counts)} planted`;
+
+  // Task queue panel: front of the queue is listed first
+  const tasks = queue.toArray();
+  $('queueCount').textContent = `${queue.size} waiting`;
+  $('queue').innerHTML = tasks.length
+    ? tasks.map((t, i) => `<li class="${i === 0 ? 'front' : ''}"><span>${t.label}</span><small>${i === 0 ? 'next up' : '#' + (i + 1)}</small></li>`).join('')
+    : '<li class="empty">Nothing queued. Choose Water Queue, then tap a plant.</li>';
+
+  // Action stack panel: top of the stack is listed first
+  const acts = actions.toArray().reverse();
+  $('stackCount').textContent = pl(actions.size, 'action') + (redoStack.size ? `, ${redoStack.size} to redo` : '');
+  $('stack').innerHTML = acts.length
+    ? acts.map((a, i) => `<li class="${i === 0 ? 'front' : ''}"><span>${describe(a)}</span><small>${i === 0 ? 'top' : ''}</small></li>`).join('')
+    : '<li class="empty">No actions yet. Plant something to start the history.</li>';
+
+  $('dayBadge').textContent = `Day ${day}`;
+  $('modePlant').setAttribute('aria-pressed', mode === 'plant');
+  $('modeWater').setAttribute('aria-pressed', mode === 'water');
+  $('undoBtn').disabled = actions.isEmpty();
+  $('redoBtn').disabled = redoStack.isEmpty();
+  $('nextBtn').disabled = $('allBtn').disabled = queue.isEmpty();
+  save();
+}
+
+/* ---- Interactions ---- */
+
+// One plot was tapped: plant it (Plant mode) or add a watering task (Water Queue mode)
+function act(b, drag = false) {
+  if (!b) return;
+  const r = +b.dataset.r, c = +b.dataset.c, p = garden.get(r, c);
+  if (mode === 'plant') {
+    if (p) { if (!drag) say(`(${r},${c}) already has a ${SPECIES[p.key].name}. Pick an empty plot, or undo.`); return; }
+    garden.plant(r, c, current);                          // DSA #1: write into the matrix
+    record({ type: 'plant', r, c, key: current });        // DSA #2: push onto the stack
+    fresh = r + ',' + c;
+    say(`Planted ${SPECIES[current].name} at (${r},${c}).`);
+  } else if (!p) {
+    say(`Nothing to water at (${r},${c}). Plant something there first.`);
+  } else if (p.watered) {
+    say(`(${r},${c}) is already watered today.`);
+  } else if (queue.toArray().some(t => t.r === r && t.c === c)) {
+    say(`(${r},${c}) is already in the queue.`);
+  } else {
+    const label = `Water ${SPECIES[p.key].name} at (${r},${c})`;
+    queue.enqueue({ r, c, label });                       // DSA #3: join the back of the queue
+    say(`Queued: ${label}.`);
+  }
+  render();
+  cellAt(r, c)?.focus();
+}
+
+// Mouse: press to act, then drag across plots to plant a row. Touch and keyboard use click.
+let painting = false, skipClick = false;
+gridEl.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  skipClick = true; painting = mode === 'plant';
+  act(e.target.closest('.cell'));
+  e.preventDefault();
+});
+window.addEventListener('mouseup', () => { painting = false; setTimeout(() => { skipClick = false; }, 0); });
+gridEl.addEventListener('mouseover', e => { if (painting) act(e.target.closest('.cell'), true); });
+gridEl.addEventListener('click', e => { if (!skipClick) act(e.target.closest('.cell')); });
+
+// Arrow keys move between plots
+gridEl.addEventListener('keydown', e => {
+  const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+  if (!d || !e.target.dataset.r) return;
+  e.preventDefault();
+  cellAt(+e.target.dataset.r + d[0], +e.target.dataset.c + d[1])?.focus();
+});
+
+$('palette').addEventListener('click', e => {
+  const b = e.target.closest('[data-key]');
+  if (!b) return;
+  current = b.dataset.key; mode = 'plant';
+  say(`Selected ${SPECIES[current].name}.`);
+  render();
+});
+$('modePlant').onclick = () => { mode = 'plant'; say('Plant mode: tap or drag across empty plots.'); render(); };
+$('modeWater').onclick = () => { mode = 'water'; say('Water Queue mode: tap a plant to schedule watering.'); render(); };
+
+// Undo: pop the newest action (LIFO), reverse it, and keep it on the redo stack
+$('undoBtn').onclick = () => {
+  const a = actions.pop();
+  if (!a) return;
+  revert(a); redoStack.push(a);
+  say(`Undid: ${describe(a)}.`);
+  render();
+};
+$('redoBtn').onclick = () => {
+  const a = redoStack.pop();
+  if (!a) return;
+  apply(a); actions.push(a);
+  say(`Redid: ${describe(a)}.`);
+  render();
+};
+
+// Next day: watered plants grow one stage (seedling, young, in bloom), then the soil dries
+$('dayBtn').onclick = () => {
+  const res = garden.grow();
+  record({ type: 'day', day, ...res });
+  day++;
+  say(res.wet.length ? `Day ${day} begins. ${pl(res.grown.length, 'plant')} grew.` : `Day ${day} begins. Nothing was watered, so nothing grew.`);
+  render();
+};
+
+// Process the task at the front of the queue (FIFO)
+function runTask() {
+  const t = queue.dequeue();
+  if (!t) return false;
+  if (garden.water(t.r, t.c)) { record({ type: 'water', r: t.r, c: t.c }); say(`Done: ${t.label}.`); return true; }
+  say(`Skipped: ${t.label}. The plant was undone.`);
+  return false;
+}
+$('nextBtn').onclick = () => { runTask(); render(); };
+$('allBtn').onclick = () => {
+  let done = 0;
+  while (!queue.isEmpty()) if (runTask()) done++;         // strictly first-in, first-out
+  say(`Processed the queue in order: ${pl(done, 'plant')} watered.`);
+  render();
+};
+
+// Tree walks: DFS uses a stack, BFS uses a queue. Each visited node lights up in turn.
+function traverse(kind) {
+  if (touring) return;
+  touring = true;
+  const order = kind === 'dfs' ? root.dfs() : root.bfs();
+  [root, flora, crops, flowers, veg].forEach(n => { n.expanded = true; });
+  order.forEach((n, i) => setTimeout(() => { lit = n; render(); }, i * 450));
+  setTimeout(() => {
+    lit = null; touring = false;
+    say(`${kind === 'dfs' ? 'Depth-first (stack)' : 'Breadth-first (queue)'} order: ${order.map(n => n.label).join(', ')}.`);
+    render();
+  }, order.length * 450);
+}
+$('dfsBtn').onclick = () => traverse('dfs');
+$('bfsBtn').onclick = () => traverse('bfs');
+
+$('resetBtn').onclick = () => {
+  if (!confirm('Clear the whole garden, the queue and the history?')) return;
+  localStorage.removeItem(KEY);
+  location.reload();
+};
+
+load();
+say('Pick a plant, then tap or drag across empty plots to grow it.');
+render();
+</script>
+</body>
+</html>
